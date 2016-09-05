@@ -13,23 +13,8 @@ else
   mkdir etc
 fi
 
-if [ -e ./etc/nginx ]; then
-  echo 'exists etc/nginx'
-else
-  mkdir etc/nginx
-fi
-
-if [ -e ./etc/httpd ]; then
-  echo 'exists etc/httpd'
-else
-  mkdir etc/httpd
-fi
-
 # 設定ファイルコピー
-sudo cp /etc/my.cnf ./etc
-sudo cp /etc/redis.conf ./etc
-sudo cp /etc/nginx/* ./etc/nginx
-sudo cp /etc/httpd/* ./etc/httpd
+sudo cp /etc/* ./etc
 
 branch_name=`git rev-parse --abbrev-ref HEAD`
 
