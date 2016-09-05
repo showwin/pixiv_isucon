@@ -1,5 +1,6 @@
 require 'sinatra/base'
 require 'mysql2'
+require 'mysql2-cs-bind'
 require 'rack-flash'
 require 'shellwords'
 
@@ -89,18 +90,20 @@ module Isuconp
 
       def get_session_user()
         if session[:user]
-          db.prepare('SELECT * FROM `users` WHERE `id` = ?').execute(
-            session[:user][:id]
-          ).first
+          db.xquery('SELECT * FROM `users` WHERE `id` = ?', session[:user][:id]).first
         else
           nil
         end
       end
 
+      def logged_in?
+        session[:user]
+      end
+
       def make_posts(results, all_comments: false)
         posts = []
         results.to_a.each do |post|
-          post[:comment_count] = db.prepare('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?').execute(
+          post[:comment_count] = db.xquery('SELECT COUNT(*) AS `count` FROM `comments` WHERE `post_id` = ?',
             post[:id]
           ).first[:count]
 
@@ -108,19 +111,13 @@ module Isuconp
           unless all_comments
             query += ' LIMIT 3'
           end
-          comments = db.prepare(query).execute(
-            post[:id]
-          ).to_a
+          comments = db.xquery(query, post[:id]).to_a
           comments.each do |comment|
-            comment[:user] = db.prepare('SELECT * FROM `users` WHERE `id` = ?').execute(
-              comment[:user_id]
-            ).first
+            comment[:user] = db.xquery('SELECT * FROM `users` WHERE `id` = ?', comment[:user_id]).first
           end
           post[:comments] = comments.reverse
 
-          post[:user] = db.prepare('SELECT * FROM `users` WHERE `id` = ?').execute(
-            post[:user_id]
-          ).first
+          post[:user] = db.xquery('SELECT * FROM `users` WHERE `id` = ?', post[:user_id]).first
 
           posts.push(post) if post[:user][:del_flg] == 0
           break if posts.length >= POSTS_PER_PAGE
@@ -149,14 +146,14 @@ module Isuconp
     end
 
     get '/login' do
-      if get_session_user()
+      if logged_in?
         redirect '/', 302
       end
       erb :login, layout: :layout, locals: { me: nil }
     end
 
     post '/login' do
-      if get_session_user()
+      if logged_in?
         redirect '/', 302
       end
 
@@ -174,14 +171,14 @@ module Isuconp
     end
 
     get '/register' do
-      if get_session_user()
+      if logged_in?
         redirect '/', 302
       end
       erb :register, layout: :layout, locals: { me: nil }
     end
 
     post '/register' do
-      if get_session_user()
+      if logged_in?
         redirect '/', 302
       end
 
@@ -230,34 +227,26 @@ module Isuconp
     end
 
     get '/@:account_name' do
-      user = db.prepare('SELECT * FROM `users` WHERE `account_name` = ? AND `del_flg` = 0').execute(
-        params[:account_name]
-      ).first
+      user = db.xquery('SELECT * FROM `users` WHERE `account_name` = ? AND `del_flg` = 0', params[:account_name]).first
 
       if user.nil?
         return 404
       end
 
-      results = db.prepare('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC').execute(
+      results = db.xquery('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `user_id` = ? ORDER BY `created_at` DESC',
         user[:id]
       )
       posts = make_posts(results)
 
-      comment_count = db.prepare('SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?').execute(
-        user[:id]
-      ).first[:count]
+      comment_count = db.xquery('SELECT COUNT(*) AS count FROM `comments` WHERE `user_id` = ?', user[:id]).first[:count]
 
-      post_ids = db.prepare('SELECT `id` FROM `posts` WHERE `user_id` = ?').execute(
-        user[:id]
-      ).map{|post| post[:id]}
+      post_ids = db.xquery('SELECT `id` FROM `posts` WHERE `user_id` = ?', user[:id]).map{|post| post[:id]}
       post_count = post_ids.length
 
       commented_count = 0
       if post_count > 0
         placeholder = (['?'] * post_ids.length).join(",")
-        commented_count = db.prepare("SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN (#{placeholder})").execute(
-          *post_ids
-        ).first[:count]
+        commented_count = db.xquery("SELECT COUNT(*) AS count FROM `comments` WHERE `post_id` IN (#{placeholder})", *post_ids).first[:count]
       end
 
       me = get_session_user()
@@ -267,7 +256,7 @@ module Isuconp
 
     get '/posts' do
       max_created_at = params['max_created_at']
-      results = db.prepare('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC').execute(
+      results = db.xquery('SELECT `id`, `user_id`, `body`, `mime`, `created_at` FROM `posts` WHERE `created_at` <= ? ORDER BY `created_at` DESC',
         max_created_at.nil? ? nil : Time.iso8601(max_created_at).localtime
       )
       posts = make_posts(results)
@@ -276,9 +265,7 @@ module Isuconp
     end
 
     get '/posts/:id' do
-      results = db.prepare('SELECT * FROM `posts` WHERE `id` = ?').execute(
-        params[:id]
-      )
+      results = db.xquery('SELECT * FROM `posts` WHERE `id` = ?', params[:id])
       posts = make_posts(results, all_comments: true)
 
       return 404 if posts.length == 0
@@ -322,7 +309,7 @@ module Isuconp
 
         params['file'][:tempfile].rewind
         query = 'INSERT INTO `posts` (`user_id`, `mime`, `imgdata`, `body`) VALUES (?,?,?,?)'
-        db.prepare(query).execute(
+        db.xquery(query,
           me[:id],
           mime,
           params["file"][:tempfile].read,
@@ -342,7 +329,7 @@ module Isuconp
         return ""
       end
 
-      post = db.prepare('SELECT * FROM `posts` WHERE `id` = ?').execute(params[:id].to_i).first
+      post = db.xquery('SELECT * FROM `posts` WHERE `id` = ?', params[:id].to_i).first
 
       if (params[:ext] == "jpg" && post[:mime] == "image/jpeg") ||
           (params[:ext] == "png" && post[:mime] == "image/png") ||
@@ -371,7 +358,7 @@ module Isuconp
       post_id = params['post_id']
 
       query = 'INSERT INTO `comments` (`post_id`, `user_id`, `comment`) VALUES (?,?,?)'
-      db.prepare(query).execute(
+      db.xquery(query,
         post_id,
         me[:id],
         params['comment']
@@ -414,7 +401,7 @@ module Isuconp
       query = 'UPDATE `users` SET `del_flg` = ? WHERE `id` = ?'
 
       params['uid'].each do |id|
-        db.prepare(query).execute(1, id.to_i)
+        db.xquery(query, 1, id.to_i)
       end
 
       redirect '/admin/banned', 302
