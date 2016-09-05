@@ -8,16 +8,19 @@ else
 fi
 
 if [ -e ./etc ]; then
+  echo 'exists etc'
 else
   mkdir etc
 fi
 
 if [ -e ./etc/nginx ]; then
+  echo 'exists etc/nginx'
 else
   mkdir etc/nginx
 fi
 
 if [ -e ./etc/httpd ]; then
+  echo 'exists etc/httpd'
 else
   mkdir etc/httpd
 fi
